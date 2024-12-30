@@ -1,0 +1,608 @@
+---
+title: "San Francisco bike share network"
+author: "Thuan Khang Dinh"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+required_libs = c("igraph", "ggplot2", "geodata", "sf")
+for (l in required_libs) {
+  if (!require(l, character.only = TRUE)) {
+      install.packages(l)
+  }
+  library(l, character.only = TRUE)
+}
+```
+
+# Introduction
+
+This report analyzes the San Francisco bike share network using data from two datasets:
+
+* July 7–13, 2014
+* July 6–12, 2015
+
+The goals are to evaluate the evolution of the network between 2014 and 2015 and identify critical stations or routes.
+
+# Data Loading
+
+## Loading the Data
+```{r}
+stations = read.csv("https://raw.githubusercontent.com/thuankhang/casestudy-sf-bikeshare/refs/heads/main/data/SF-bikeshare-station-info.csv")
+trips_2014 = read.csv("https://raw.githubusercontent.com/thuankhang/casestudy-sf-bikeshare/refs/heads/main/data/SF-bikeshare-1-week-2014-07.csv")
+trips_2015 = read.csv("https://raw.githubusercontent.com/thuankhang/casestudy-sf-bikeshare/refs/heads/main/data/SF-bikeshare-1-week-2015-07.csv")
+```
+
+# Data Wrangling
+
+## Understand the dataset
+
+We have 3 datasets:
+
+- `stations`:
+```{r}
+str(stations)
+```
+- `trips_2014`:
+```{r}
+str(trips_2014)
+```
+- `trips_2015`:
+```{r}
+str(trips_2015)
+```
+
+## Summary:
+
+Let's get the summary of `trips_2014` and `trips_2015`:
+```{r}
+summary(trips_2014)
+summary(trips_2015)
+```
+
+## NA observations
+```{r}
+sum(is.na(stations))
+sum(is.na(trips_2014))
+sum(is.na(trips_2015))
+```
+
+There is no missing(NA) values in any of the datasets.
+
+## Preprocessing
+
+Standardize the datasets for consistent analysis.
+
+### Data Conversion and Cleanup
+
+Add columns for start city, end city, and trip between cities.
+```{r}
+trips_2014$start_city = stations$city[match(trips_2014$start_station_id, stations$id)]
+trips_2014$end_city = stations$city[match(trips_2014$end_station_id, stations$id)]
+trips_2014$trip_between_cities = paste(trips_2014$start_city, "->", trips_2014$end_city)
+
+
+trips_2015$start_city = stations$city[match(trips_2015$start_station_id, stations$id)]
+trips_2015$end_city = stations$city[match(trips_2015$end_station_id, stations$id)]
+trips_2015$trip_between_cities = paste(trips_2015$start_city, "->", trips_2015$end_city)
+```
+
+
+Add latitude and longitude information for each station.
+```{r}
+trips_2014$start_station_lat = stations$lat[match(trips_2014$start_station_id, stations$id)]
+trips_2014$start_station_long = stations$long[match(trips_2014$start_station_id, stations$id)]
+trips_2014$end_station_lat = stations$lat[match(trips_2014$end_station_id, stations$id)]
+trips_2014$end_station_long = stations$long[match(trips_2014$end_station_id, stations$id)]
+
+
+trips_2015$start_station_lat = stations$lat[match(trips_2015$start_station_id, stations$id)]
+trips_2015$start_station_long = stations$long[match(trips_2015$start_station_id, stations$id)]
+trips_2015$end_station_lat = stations$lat[match(trips_2015$end_station_id, stations$id)]
+trips_2015$end_station_long = stations$long[match(trips_2015$end_station_id, stations$id)]
+```
+
+# Analyze
+
+## a. Station Statistics
+
+### Overall:
+
+We will find number of unique stations in July each year.
+```{r}
+stations_2014 = unique(c(trips_2014$start_station_id, trips_2014$end_station_id))
+stations_2015 = unique(c(trips_2015$start_station_id, trips_2015$end_station_id))
+```
+- Number of stations in July 2014: `r length(stations_2014)`.
+- Number of stations in July 2015: `r length(stations_2015)`.
+
+
+There are more stations on July 2015, so we will find new stations and removed stations (if have) over the year:
+
+```{r}
+new_stations = setdiff(stations_2015, stations_2014)
+removed_stations = setdiff(stations_2014, stations_2015)
+```
+
+- New stations in July 2015: `r stations$name[stations$id %in% new_stations]`
+- Removed stations in July 2015: `r stations$name[stations$id %in% removed_stations]`
+
+### By City:
+
+First, we will need to find out how many cities are there, and what are those for later using.
+
+```{r}
+city_2014 = unique(stations$city[stations$id %in% unique(union(trips_2014$start_station_id, trips_2014$end_station_id))])
+city_2015 = unique(stations$city[stations$id %in% unique(union(trips_2015$start_station_id, trips_2015$end_station_id))])
+```
+
+- In July 2014: Cities: `r city_2014`.
+- In July 2015: Cities: `r city_2015`.
+
+There are in total `r length(city_2014)` cities in dataset of July 2014 and `r length(city_2015)` cities in dataset of July 2015
+
+- In July 2014:
+```{r}
+stations_2014_count = table(stations$city[stations$id %in% stations_2014])
+stations_2014_count
+write.csv(stations_2014_count, "num_stations_city_2014.csv")
+```
+- In July 2015:
+```{r}
+stations_2015_count = table(stations$city[stations$id %in% stations_2015])
+stations_2015_count
+```
+
+**Insights**
+```
+- As we found before, there are one more stations, and new station `r stations$name[stations$id %in% new_stations]` is in the `r stations$city[stations$id %in% new_stations]`.
+- Number of stations on each city still remains, except for `r stations$city[stations$id %in% new_stations]`.
+- San Francisco has the most number of stations, while Palo Alto has the least. We can make a prediction that the connectivity and volume in San Francisco will outweighted the others.
+```
+
+
+### Plotting
+
+#### Pie chart number of stations each city over 2 years.
+```{r}
+pie(stations_2014_count, 
+    main = "Pie Chart of Stations in Cities - July 2014", 
+    col = rainbow(length(stations_2014_count)),
+    radius = 1)
+```
+```{r}
+pie(stations_2015_count, 
+    main = "Pie Chart of Stations in Cities - July 2015", 
+    col = rainbow(length(stations_2015_count)),
+    radius = 1)
+```
+
+#### Grouped Bar Chart for comparing number of stations each city.
+```{r}
+stations_count = data.frame(
+  City = rep(names(stations_2014_count), 2),
+  Year = rep(c(2014, 2015), each = length(stations_2014_count)),
+  Count = c(as.vector(stations_2014_count), as.vector(stations_2015_count))
+)
+
+
+ggplot(stations_count, aes(x = City, y = Count, fill = factor(Year))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x = "City", y = "Number of Stations", fill = "Year") +
+  ggtitle("Number of Stations by City in July 2014 and 2015") +
+  theme_minimal()
+```
+
+#### Graph for showing stations in map
+Since the different between datasets in 2014 and 2015 is not huge enough, I will plot only graph for the year 2014.
+
+First, get dataframe of station start, end and vol.
+```{r}
+stations_graphing_2014 = as.data.frame(table(trips_2014$start_station_id, trips_2014$end_station_id))
+colnames(stations_graphing_2014) = c("Start", "End", "Vol")
+```
+
+Then, make graph using `graph_from_data_frame`
+```{r}
+graph_2014 = graph_from_data_frame(stations_graphing_2014)
+
+
+long_2014 = c()
+lat_2014 = c()
+for (station_id in V(graph_2014)$name) {
+  station_coords = stations[stations$id == station_id,]
+  if (nrow(station_coords) > 0) {
+    long_2014 = c(long_2014, station_coords$long)
+    lat_2014 = c(lat_2014, station_coords$lat)
+  } else {
+    long_2014 = c(long_2014, NA)  
+    lat_2014 = c(lat_2014, NA)
+  }
+}
+
+V(graph_2014)$x = long_2014
+V(graph_2014)$y = lat_2014
+V(graph_2014)$size = degree(graph_2014, mode = "out")*0.1
+```
+
+And plotting:
+```{r, fig.width=10, fig.height=6}
+USA <- geodata::gadm(country='USA', level=2, path = ".")
+
+cities_map <- USA[USA$NAME_1 %in% "California",]
+
+plot(cities_map, 
+     xlim = c(-122.45, -121.875),
+     ylim = c(37.325, 37.825))
+
+plot(graph_2014, add = TRUE, rescale = FALSE,
+     edge.arrow.size = 0.01, edge.arrow.width = 0.75)
+```
+
+It is too difficult to see, so my first plan is I will delve into each city. But I cannot plot other city (I don't know why) so I will plot only San Francisco.
+
+The code are the same so I will skip explaining them.
+
+##### San Francisco
+```{r}
+stations_graphing_2014 = as.data.frame(table(trips_2014$start_station_id[trips_2014$start_city == "San Francisco" & trips_2014$end_city == "San Francisco"], trips_2014$end_station_id[trips_2014$start_city == "San Francisco" & trips_2014$end_city == "San Francisco"]))
+colnames(stations_graphing_2014) = c("Start", "End", "Vol")
+
+graph_2014 = graph_from_data_frame(stations_graphing_2014)
+
+
+long_2014 = c()
+lat_2014 = c()
+for (station_id in V(graph_2014)$name) {
+  station_coords = stations[stations$id == station_id,]
+  if (nrow(station_coords) > 0) {
+    long_2014 = c(long_2014, station_coords$long)
+    lat_2014 = c(lat_2014, station_coords$lat)
+  } else {
+    long_2014 = c(long_2014, NA)  
+    lat_2014 = c(lat_2014, NA)
+  }
+}
+
+V(graph_2014)$x = long_2014
+V(graph_2014)$y = lat_2014
+V(graph_2014)$size = degree(graph_2014, mode = "out")*0.01
+
+USA <- geodata::gadm(country='USA', level=2, path = ".")
+map <- USA[USA$NAME_2 == "San Francisco",]
+
+plot(map,
+     xlim = c(-122.425, -122.375),
+     ylim = c(37.77, 37.81),
+     main = "Graph in San Francisco")
+
+plot(graph_2014, add = TRUE, rescale = FALSE,
+     edge.arrow.size = 0.01, edge.arrow.width = 0.75)
+```
+
+
+## b. Trip Volumes
+
+### Overall:
+
+#### Total trips:
+
+- Total trips in July 2014: `r nrow(trips_2014)`
+- Total trips in July 2015: `r nrow(trips_2015)`
+
+#### Total trips duration:
+
+- Total trips duration in July 2014: `r sum(trips_2014$duration)` seconds, which is around `r round(sum(trips_2014$duration) / 3600, 2)` hours.
+- Total trips duration in July 2015: `r sum(trips_2015$duration)` seconds, which is `r round(sum(trips_2015$duration) / 3600, 2)` hours.
+
+#### Average trips duration:
+
+- Average trip duration in July 2014: `r round(mean(trips_2014$duration), 2)` seconds.
+- Average trip duration in July 2015: `r round(mean(trips_2015$duration), 2)` seconds.
+
+**Insights**
+```
+- Total Trips: Increased from 6,911 in 2014 to 7,381 in 2015, reflecting greater bike-share usage.
+- Total Trip Durations: Grew from 2,223.13 hours in 2014 to 2,457.26 hours in 2015, suggesting longer or more frequent trips.
+- Average Trip Duration: Increased slightly from 1,158.05 seconds in 2014 to 1,198.5 seconds in 2015, indicating a trend toward longer rides.
+```
+
+### By city:
+
+#### In July 2014:
+```{r}
+table_trips_2014 = as.data.frame(table(trips_2014$trip_between_cities))
+colnames(table_trips_2014) = c("trip_between_cities_2014", "num_trips")
+duration_2014 = c()
+for (i in table_trips_2014$trip_between_cities_2014) {
+  duration_2014 = c(duration_2014, sum(trips_2014$duration[trips_2014$trip_between_cities %in% i]))
+}
+table_trips_2014$duration = duration_2014
+table_trips_2014$avg_duration = round(table_trips_2014$duration / table_trips_2014$num_trips, 2)
+table_trips_2014
+
+table_trips_2014$year = rep(2014, dim(table_trips_2014)[1])
+table_trips_2014
+```
+#### In July 2015:
+```{r}
+table_trips_2015 = as.data.frame(table(trips_2015$trip_between_cities))
+colnames(table_trips_2015) = c("trip_between_cities_2015", "num_trips")
+duration_2015 = c()
+for (i in table_trips_2015$trip_between_cities_2015) {
+  duration_2015 = c(duration_2015, sum(trips_2015$duration[trips_2015$trip_between_cities %in% i]))
+}
+table_trips_2015$duration = duration_2015
+table_trips_2015$avg_duration = round(table_trips_2015$duration / table_trips_2015$num_trips, 2)
+table_trips_2015
+
+table_trips_2015$year = rep(2015, dim(table_trips_2015)[1])
+
+table_trips = data.frame(trip_between_cities = c(table_trips_2014$trip_between_cities_2014, table_trips_2015$trip_between_cities_2015),
+                         num_trips = c(table_trips_2014$num_trips, table_trips_2015$num_trips),
+                         duration = c(table_trips_2014$duration, table_trips_2015$duration),
+                         avg_duration = c(table_trips_2014$avg_duration, table_trips_2015$avg_duration),
+                         year = c(table_trips_2014$year, table_trips_2015$year))
+
+write.csv(table_trips, "trips_summary_between_city_both.csv")
+
+
+```
+
+
+**Insights**
+```
+1. 2014
+
+- San Francisco had the highest number of trips (6,071) and significant total duration (5,867,541 seconds, avg. 966.49 seconds per trip). It was the busiest and most central hub.
+- San Jose had notable trips (453) with a high average duration (3,154.44 seconds), reflecting longer commutes.
+- Outliers like Redwood City -> Palo Alto had very high average durations (3,414.50 seconds) despite fewer trips (2 trips), likely due to recreational or long-distance rides.
+
+3. 2015
+
+- San Francisco again dominated with 6,628 trips, an increase from 2014, and a similar average trip duration (1,008.47 seconds).
+- Palo Alto -> Palo Alto stood out with 81 trips and the highest average duration (15,833.48 seconds), suggesting unique, long-duration usage patterns.
+- San Jose showed shorter average trips (919.09 seconds) despite a considerable number of trips (387), indicating a shift toward shorter commutes.
+```
+
+### PLotting:
+
+#### Grouped Bar Chart for total number of trips and trip duration
+
+```{r}
+data = data.frame(
+  Year = c("2014", "2015"),
+  Total_Trips = c(nrow(trips_2014), nrow(trips_2015)),
+  Total_Duration = c(sum(trips_2014$duration), sum(trips_2015$duration))
+)
+
+ggplot(data) +
+  geom_bar(aes(x = Year, y = Total_Trips, fill = "Total Trips"), 
+           stat = "identity", position = "dodge", width = 0.4) +
+  geom_line(aes(x = Year, y = Total_Duration / 1000, group = 1, color = "Total Duration"), 
+            linewidth = 1.5, linetype = "dashed") + 
+  geom_point(aes(x = Year, y = Total_Duration / 1000, color = "Total Duration"), 
+             size = 4) +
+  labs(title = "Total Trips and Total Duration in July 2014 and 2015",
+       x = "Year", y = "Value",
+       fill = "Legend", color = "Legend") +
+  scale_y_continuous(
+    name = "Total Trips", 
+    sec.axis = sec_axis(~ . * 1000, name = "Total Duration (seconds)", 
+                        labels = scales::comma)
+  ) +
+  scale_fill_manual(values = c("Total Trips" = "skyblue")) +
+  scale_color_manual(values = c("Total Duration" = "red")) +
+  theme_minimal()
+```
+
+#### Bar Chart for Average trip duration:
+
+```{r}
+avg_data = data.frame(
+  Year = c("2014", "2015"),
+  Average_Duration = c(mean(trips_2014$duration), mean(trips_2015$duration))
+)
+
+ggplot(avg_data, aes(x = Year, y = Average_Duration, fill = Year)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Trip Duration in July 2014 and 2015",
+       x = "Year", y = "Average Duration (seconds)") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma)
+```
+
+## c. Routes Statistics
+
+We will first make a data frame contains start_station, end_station, num_trips, duration and avg_duration for both year:
+```{r}
+popular_routes_num_trips_2014 = aggregate(
+  duration ~ start_station_name + end_station_name,
+  data = trips_2014,
+  FUN = length
+)
+colnames(popular_routes_num_trips_2014)[3] = "num_trips_2014"
+
+popular_routes_duration_2014 = aggregate(
+  duration ~ start_station_name + end_station_name,
+  data = trips_2014,
+  FUN = sum
+)
+colnames(popular_routes_duration_2014)[3] = "duration_2014"
+
+popular_routes_2014 = merge(
+  popular_routes_num_trips_2014,
+  popular_routes_duration_2014,
+  by = c("start_station_name", "end_station_name")
+)
+
+popular_routes_2014$avg_duration_2014 = round(popular_routes_2014$duration_2014 / popular_routes_2014$num_trips_2014, 2)
+
+
+popular_routes_num_trips_2015 = aggregate(
+  duration ~ start_station_name + end_station_name,
+  data = trips_2015,
+  FUN = length
+)
+colnames(popular_routes_num_trips_2015)[3] = "num_trips_2015"
+
+popular_routes_duration_2015 = aggregate(
+  duration ~ start_station_name + end_station_name,
+  data = trips_2015,
+  FUN = sum
+)
+colnames(popular_routes_duration_2015)[3] = "duration_2015"
+
+popular_routes_2015 = merge(
+  popular_routes_num_trips_2015,
+  popular_routes_duration_2015,
+  by = c("start_station_name", "end_station_name")
+)
+
+popular_routes_2015$avg_duration_2015 = round(popular_routes_2015$duration_2015 / popular_routes_2015$num_trips_2015, 2)
+```
+
+#### Top 5 popular routes (by number of trips):
+
+- In July 2014:
+```{r}
+head(popular_routes_2014[order(-popular_routes_2014$num_trips_2014), ], 5)
+```
+
+- In July 2015:
+```{r}
+head(popular_routes_2015[order(-popular_routes_2015$num_trips_2015), ], 5)
+```
+
+
+#### Top 5 routes with longest duration:
+
+- In July 2014:
+```{r}
+head(popular_routes_2014[order(-popular_routes_2014$duration_2014), ],5)
+```
+
+- In July 2015:
+```{r}
+head(popular_routes_2015[order(-popular_routes_2015$duration_2015), ], 5)
+```
+
+#### Top 5 routes with longest average duration:
+
+- In July 2014:
+```{r}
+head(popular_routes_2014[order(-popular_routes_2014$avg_duration_2014), ],5)
+```
+
+- In July 2015:
+```{r}
+head(popular_routes_2015[order(-popular_routes_2015$avg_duration_2015), ], 5)
+```
+
+**Insights**
+```
+1. Most Popular Routes
+
+- Harry Bridges Plaza (Ferry Building) to Embarcadero at Sansome was the most frequent route in both years (82 trips in 2014, 86 in 2015), solidifying its role as a central commuter hub.
+- 2015 saw new popular routes like Townsend at 7th to San Francisco Caltrain 2, reflecting changing commuter patterns.
+
+2. Routes with Longest Total Durations
+
+- 2014: Outlier trips like Arena Green / SAP Center to Adobe on Almaden (715,339 seconds) dominated.
+- 2015: University and Emerson to itself emerged as the longest total duration route (1,205,549 seconds), indicating increased recreational use.
+
+3. Routes with Longest Average Durations
+
+- Both years featured outliers (e.g., University and Emerson, Arena Green / SAP Center) with unusually long durations, likely non-commuter trips.
+```
+
+### Plotting
+
+#### Bar Chart for Most Popular Routes
+
+First, I will combine data for both years for comparison
+```{r}
+popular_routes_combined = merge(
+  popular_routes_2014[, c("start_station_name", "end_station_name", "num_trips_2014")],
+  popular_routes_2015[, c("start_station_name", "end_station_name", "num_trips_2015")],
+  by = c("start_station_name", "end_station_name"),
+  all = TRUE
+)
+popular_routes_combined = popular_routes_combined[order(-popular_routes_combined$num_trips_2014, -popular_routes_combined$num_trips_2015), ]
+```
+
+Then, I only take the top 5 popular routes:
+```{r}
+popular_routes_top5 = head(popular_routes_combined, 5)
+
+popular_routes_top5_long = data.frame(
+  route = paste(popular_routes_top5$start_station_name, "->", popular_routes_top5$end_station_name),
+  num_trips = c(popular_routes_top5$num_trips_2014, popular_routes_top5$num_trips_2015),
+  year = rep(c("2014", "2015"), each = 5)
+)
+
+popular_routes_top5_long$route = paste(
+  substr(popular_routes_top5$start_station_name, 1, 10), 
+  "...",
+  "->", 
+  substr(popular_routes_top5$end_station_name, 1, 10),
+  "..."
+)
+```
+
+And plotting
+
+```{r}
+ggplot(popular_routes_top5_long, aes(x = route, y = num_trips, fill = year)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Most Popular Routes by Number of Trips (Top 5)",
+    x = "Route",
+    y = "Number of Trips",
+    fill = "Year"
+  ) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+#### Heatmap of top 100 Station Usage
+
+First, I combine data for both years
+```{r}
+heatmap_data_2014 <- trips_2014[, c("start_station_name", "end_station_name")]
+heatmap_data_2015 <- trips_2015[, c("start_station_name", "end_station_name")]
+heatmap_data <- rbind(heatmap_data_2014, heatmap_data_2015)
+```
+
+And create heatmap data frame of top 25
+```{r}
+heatmap_df <- as.data.frame(table(heatmap_data$start_station_name, heatmap_data$end_station_name))
+colnames(heatmap_df) <- c("Start_Station", "End_Station", "Frequency")
+heatmap_df = head(heatmap_df[order(-heatmap_df$Frequency), ], 25)
+```
+
+And plotting:
+
+```{r}
+ggplot(heatmap_df, aes(x = Start_Station, y = End_Station, fill = Frequency)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(
+    title = "Heatmap of Top 25 Station Usage",
+    x = "Start Station",
+    y = "End Station",
+    fill = "Frequency"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+# Insights
+
+- **Station Statistics:** The number of stations slightly increased from 69 in 2014 to 70 in 2015, with the addition of the Redwood City Medical Center station. San Francisco remains the central hub with the highest number of stations, while Palo Alto continues to have the fewest.
+- **Trip Volumes:** Overall, trip volume and total duration grew from 6,911 trips (2,223.13 hours) in 2014 to 7,381 trips (2,457.26 hours) in 2015, reflecting greater bike-share usage. Average trip duration slightly increased, indicating longer rides over time.
+- **Routes Statistics:** The most popular route was consistently between Harry Bridges Plaza and Embarcadero at Sansome, which remained the most traveled in both years. Routes with the longest durations were dominated by outliers, such as the Arena Green to Adobe on Almaden route in 2014 and University and Emerson in 2015, suggesting increased recreational or non-commuter use.
+
+Overall, the data reflects growing bike-share usage, particularly in San Francisco, and a trend toward longer and more varied trips.
