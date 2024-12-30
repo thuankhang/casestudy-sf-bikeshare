@@ -1,0 +1,16 @@
+"","trip_between_cities","num_trips","duration","avg_duration","year"
+"1","Mountain View -> Mountain View",260,518743,1995.17,2014
+"2","Mountain View -> Palo Alto",6,11596,1932.67,2014
+"3","Palo Alto -> Mountain View",6,8959,1493.17,2014
+"4","Palo Alto -> Palo Alto",86,144850,1684.3,2014
+"5","Redwood City -> Palo Alto",2,6829,3414.5,2014
+"6","Redwood City -> Redwood City",27,15796,585.04,2014
+"7","San Francisco -> San Francisco",6071,5867541,966.49,2014
+"8","San Jose -> San Jose",453,1428963,3154.44,2014
+"9","Mountain View -> Mountain View",230,329696,1433.46,2015
+"10","Mountain View -> Palo Alto",1,1917,1917,2015
+"11","Palo Alto -> Mountain View",7,52995,7570.71,2015
+"12","Palo Alto -> Palo Alto",81,1282512,15833.48,2015
+"13","Redwood City -> Redwood City",47,139199,2961.68,2015
+"14","San Francisco -> San Francisco",6628,6684147,1008.47,2015
+"15","San Jose -> San Jose",387,355687,919.09,2015
