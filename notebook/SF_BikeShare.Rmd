@@ -17,6 +17,8 @@ for (l in required_libs) {
 }
 ```
 
+**For Github version follow [link](https://github.com/thuankhang/casestudy-sf-bikeshare)**
+
 # Introduction
 
 This report analyzes the San Francisco bike share network using data from two datasets:
